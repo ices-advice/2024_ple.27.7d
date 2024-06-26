@@ -1,0 +1,434 @@
+---
+title: "Analyzing Age/Length structures in IC"
+author: "Youen Vermard"
+date: "`r date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+
+```{r echo=F}
+#### run with R3.4.3
+#### ONLY PIECE TO BE CHANGED working directories
+wd <- "bootstrap/data/all_landings_2023/"
+#output_wd <- "F://D//Expertise//WGNSSK//2016//IC//ple-eche_all_ 2016-4-28 16_46_30_all_all//"
+```
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE,fig.height=8)
+```
+
+
+This documet uses Table 2 from CatchAndSampleDataTables. txt from the InterCatch outputs to describe the raising procedures that were made.
+
+
+
+```{r}
+### libraries
+library(data.table)
+library(gplots)
+library(pander); library(captioner)
+library(lattice)
+library(ggplot2)
+#initialise les fonctions pour légender tables et figures
+tabcap <- captioner(prefix = "Table")
+figcap <- captioner(prefix = "Figure")
+
+```
+
+
+```{r}
+### read the data
+test <- scan(paste(wd,"CatchAndSampleDataTables.txt",sep=""),what='character',sep='\t')
+table2 <- test[(which(test=="TABLE 2.")+3):length(test)]
+tmp<-table2[-c(1:56)]			  
+			  
+table2_bis<-data.frame(matrix(tmp,ncol=27,byrow=T), stringsAsFactors =F)
+colnames(table2_bis) <- table2[1:27]
+table2_bis <- data.table(table2_bis)
+table2_bis <- table2_bis[,CATON:=as.numeric(as.character(CATON))]
+
+table2_bis <- table2_bis[,CATON:=CATON/1000]
+
+
+table2_bis <- table2_bis[,CANUM:=as.numeric(as.character(CANUM))]
+table2_bis <- table2_bis[,WECA:=as.numeric(as.character(WECA))]
+table2_bis <- table2_bis[,AgeOrLength:=as.numeric(as.character(AgeOrLength))]
+
+table2_bis <- table2_bis[,Area:=as.factor(Area)]
+table2_bis <- table2_bis[,Fleet:=factor(Fleet)]
+table2_bis <- table2_bis[,Season:=factor(Season)]
+table2_bis <- table2_bis[,Country:=factor(Country)]
+
+
+table2_bis <- table2_bis[,id:=paste(Stock,Country,Area,Season,Fleet)]
+
+table2_bis[Area=="IIIaN                                                       ",'Area'] <- "IIIaN"
+
+table2_bis$CatchCategory <- factor(table2_bis$CatchCategory)
+
+colnames(table2_bis)[colnames(table2_bis)=='CATONRaisedOrImported'] <- 'RaisedOrImported'
+
+
+
+
+		
+		
+		##modif
+		table2_ter <- table2_bis[,-c("Sex","AgeOrLength","CANUM","WECA","LECA")]
+		dim(table2_ter)
+		table2_ter <- unique(table2_ter)
+		dim(table2_ter)
+		##modif
+		
+		SOP <- merge(table2_bis[,list(SOP=sum(CANUM*WECA)/1000000), by=c('CatchCategory')], table2_ter[, list(CATON=sum(CATON)), by=c('CatchCategory')])
+		SOP <-SOP[,list(SOP=SOP/CATON), by=c('CatchCategory')]
+		
+## simple stats on imported data
+		
+		SampledOrEstimated <- table2_ter[,list(CATON=sum(CATON)), by=c('CatchCategory','RaisedOrImported','SampledOrEstimated')]
+		SampledOrEstimated <- SampledOrEstimated[, perc:=round(CATON/sum(CATON)*100), by='CatchCategory']
+		SampledOrEstimated <- SampledOrEstimated[order(CatchCategory, perc, decreasing=T),]
+
+		SummaryReport <- SampledOrEstimated[,list(CATON=sum(CATON)), by=c('CatchCategory','RaisedOrImported')]
+		SummaryReport <- SummaryReport[, perc:=round(CATON/sum(CATON)*100), by='CatchCategory']
+		SummaryReport <- SummaryReport[order(CatchCategory),]		
+
+		
+		SampledOrEstimatedArea <- table2_ter[,list(CATON=sum(CATON)), by=c('CatchCategory','RaisedOrImported','SampledOrEstimated','Area')]
+		SampledOrEstimatedArea <- SampledOrEstimatedArea[, perc:=round(CATON/sum(CATON)*100), by=c('CatchCategory','Area')]
+		SampledOrEstimatedArea <- SampledOrEstimatedArea[order(Area, CatchCategory,perc, decreasing=T),]
+
+
+		### landings with associated discards
+		
+	landingsWithAssociatedDiscards <- table2_ter[,list(CATON=sum(CATON)), by=c('id','RaisedOrImported','CatchCategory')]
+	tmp <-  landingsWithAssociatedDiscards[(RaisedOrImported=="Imported_Data" & CatchCategory=="Discards")  , id]
+	landingsWithAssociatedDiscards <- landingsWithAssociatedDiscards[id%in%tmp & CatchCategory=="Landings", sum(CATON)]/table2_ter[CatchCategory=="Landings",sum(CATON)]*100
+	
+
+	
+	### compute discards ratio by area for the imported data
+
+	landingsWithAssociatedDiscards2 <- table2_ter[,list(CATON=sum(CATON)), by=c('id','RaisedOrImported','CatchCategory','Area')]
+	tmp <-  landingsWithAssociatedDiscards2[(RaisedOrImported=="Imported_Data" & CatchCategory=="Discards")  , id]
+	landings <- landingsWithAssociatedDiscards2[id%in%tmp & CatchCategory=="Landings",c("id", "RaisedOrImported","Area", "CATON")]
+	colnames(landings)[4] <- "CATON_LAN"
+	Discards <- landingsWithAssociatedDiscards2[id%in%tmp & CatchCategory=="Discards",c("id", "RaisedOrImported","Area", "CATON")]
+	colnames(Discards)[4] <- "CATON_DIS"
+	tmp <- merge(landings, Discards, by=c("id", "RaisedOrImported",      "Area"), all=T)
+
+	DR <- tmp[, list(sumLan=sum(CATON_LAN, na.rm=T), sumDis=sum(CATON_DIS, na.rm=T)), by=list(Area)]
+	DR <- DR[,DiscardRatio:=sumDis/(sumDis+sumLan)]
+	
+		## summary of the catch per gear
+		table2_ter <- table2_ter[, Gear:=substr(table2_ter$Fleet,1,3)]
+		summCatchPerGear <- table2_ter[, list(sumCatch=sum(CATON)), by=c('Stock','Gear')]
+		summCatchPerGear <- summCatchPerGear[, percCatch:=sumCatch/sum(sumCatch)*100, by=c('Stock')]
+		summCatchPerGear <- summCatchPerGear[ order(percCatch,decreasing=T),]
+
+
+		sumLandingsPerGear <- table2_ter[CatchCategory=="Landings",]
+		sumLandingsPerGear <- sumLandingsPerGear[, list(sumCatch=sum(CATON)), by=c('Stock','Gear')]
+		sumLandingsPerGear <- sumLandingsPerGear[, percCatch:=sumCatch/sum(sumCatch)*100, by=c('Stock')]
+		sumLandingsPerGear <- sumLandingsPerGear[ order(percCatch,decreasing=T),]
+		
+		  
+		  
+	if(unique(table2_bis$AgeOrLengthType)=="Lngt") AgeTit <- "Length" else AgeTit <- "Age"
+
+### Age Structure
+
+listVAR <- c("CatchCategory",'RaisedOrImported',"SampledOrEstimated","Country","Area","Season","Fleet")
+
+## By Sex
+
+listVAR <- c("CatchCategory",'RaisedOrImported',"SampledOrEstimated","Country","Area","Season","Fleet","Sex")
+
+#table2_bis <- table2_bis[CANUM>0,]
+
+AgeStrucSex <- table2_bis[,meanAge:=weighted.mean(AgeOrLength,CANUM, na.rm=T), by=c(listVAR)]
+
+
+plotFunction <- function(AgeStrucSexLan,Estim,Sampled){
+				plotTitle <- paste("Mean ", AgeTit, " in the ", catchCat, " by ", Var, sep=" ")
+
+	Formula <-paste('meanAge~',Var, sep="")
+
+	boxplot(eval(parse(text=Formula)), data=AgeStrucSexLan,
+             boxwex = 0.25, at = which(pos%in%unique(AgeStrucSexLan[,which(colnames(Sampled)==Var)])) + 0.3,
+             col = "red",
+             main = plotTitle,
+             xlab = "",
+             ylab = paste("Mean ",AgeTit, sep=""),
+             xlim = c(0.5, length(unique(AgeStrucSexLan[,which(colnames(Sampled)==Var)]))+.5), ylim = c(min(AgeStrucSexLan$AgeOrLength), max(AgeStrucSexLan$AgeOrLength)), yaxs = "i", xaxt='n')
+	boxplot(eval(parse(text=Formula)), data=Estim, add=TRUE,
+             boxwex = 0.25, at = which(pos%in%unique(Estim[,which(colnames(Sampled)==Var)])),
+             col = "orange")
+	boxplot(eval(parse(text=Formula)), data=Sampled, add=TRUE,
+             boxwex = 0.25, at = which(pos%in%unique(Sampled[,which(colnames(Sampled)==Var)])) - 0.3,
+             col = "yellow", xaxt='n')
+  legend(1, max(AgeStrucSexLan$AgeOrLength), c("Imported", "Raised", "All"),
+            fill = c("yellow", "orange", "red"))
+	}
+	
+	
+plotFunctionMeanWeight <- function(AgeStrucSexLan=AgeStrucSexLan,Estim=Estim,Sampled=Sampled){
+				plotTitle <- paste("Mean ", AgeTit, " in the ", catchCat, " area ", unique(AgeStrucSexLan$Area), sep=" ")
+
+	
+AgeStrucSexLan <- data.frame(AgeStrucSexLan)
+AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)] <- factor(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+pos <- levels(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+
+Estim <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Estimated_Distribution'),]
+Estim[,which(colnames(Estim)==Var)] <- factor(Estim[,which(colnames(Estim)==Var)])
+
+Sampled <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Sampled_Distribution'),]
+Sampled[,which(colnames(Sampled)==Var)] <- factor(Sampled[,which(colnames(Sampled)==Var)])
+	
+	Formula <-paste('WECA~',Var, sep="")
+
+	boxplot(eval(parse(text=Formula)), data=AgeStrucSexLan,
+             boxwex = 0.25, at = which(pos%in%unique(AgeStrucSexLan[,which(colnames(Sampled)==Var)])) + 0.3,
+             col = "red",
+             main = plotTitle,
+             xlab = "",
+             ylab = paste("Mean Weight", sep=""),
+             xlim = c(0.5, length(unique(AgeStrucSexLan[,which(colnames(Sampled)==Var)]))+.5), ylim = c(min(AgeStrucSexLan$WECA), max(AgeStrucSexLan$WECA)), yaxs = "i", xaxt='n')
+	boxplot(eval(parse(text=Formula)), data=Estim, add=TRUE,
+             boxwex = 0.25, at = which(pos%in%unique(Estim[,which(colnames(Sampled)==Var)])),
+             col = "orange")
+	
+	if(dim(Sampled)[1]>0){
+	boxplot(eval(parse(text=Formula)), data=Sampled, add=TRUE,
+             boxwex = 0.25, at = which(pos%in%unique(Sampled[,which(colnames(Sampled)==Var)])) - 0.3,
+             col = "yellow", xaxt='n')
+	}
+  legend(1, max(AgeStrucSexLan$WECA), c("Imported", "Raised", "All"),
+            fill = c("yellow", "orange", "red"))
+}
+
+
+
+
+```
+`r tabcap(name="SOP",caption="SOP")`
+```{r}
+pander(data.frame(SOP))
+```
+#Raised and imported datas
+
+##Raised discards
+
+In InterCatch, the first step consists in raising the discards volumes for strats with landings and no discards associated. These discards are called in the following table 'Raised_Discards'. The data called 'Imported_Data' are landings or discards volumes imported into InterCatch with or without `r AgeTit` structure.
+
+The proportion of Landings with Discards associated (same strata) is **`r paste(round(landingsWithAssociatedDiscards), 'percent')`**
+
+For these stratas, the discards ratios are the following:
+
+`r pander(data.frame(DR))`
+
+The volumes (and associated proportion) of landings and discards imported  (Imported_Data) or raised (Raised_Discards) are described in the following table.
+
+
+`r tabcap(name="SummaryReport",caption="Summary of the imported/Raised data")`
+```{r}
+pander(SummaryReport)
+```
+
+
+##Total catch per gear
+
+The following table gives a summary of the catch (Landings+discards(imported+raised)) per gear (3 first letters of the metier)
+
+`r tabcap(name="SummaryCatch",caption="Total catch (in tonnes) and Percentage of catches per gear")`
+```{r}
+pander(summCatchPerGear)
+```
+
+
+The following table gives a summary of the landings per gear (3 first letters of the metier)
+
+`r tabcap(name="SummaryLandings",caption="Total landings (in tonnes) and Percentage of catches per gear")`
+```{r}
+pander(sumLandingsPerGear)
+```
+
+
+
+
+
+
+## `r AgeTit` distribution
+
+For the imported landings/discards and the raised discards without age distribution, the `r AgeTit` distribution is then computed using the defined allocation scheme. *Sampled_distribution* means that the data (ladings or discards) were input with `r AgeTit` distribution. *Estimated_distribution* means that the inputed/raised valoumes were estimated using the allocation scheme.
+
+In the following tables, CATON is in tonnes
+
+`r tabcap(name="SampledOrEstimated",caption="Summary of the imported/Raised/SampledOrEstimated data")`
+```{r}
+pander(SampledOrEstimated)
+```
+
+`r tabcap(name="SampledOrEstimatedArea",caption="Summary of the imported/Raised/SampledOrEstimated data by area")`
+```{r}
+pander(SampledOrEstimatedArea)
+```
+##Impact of the raising on the `r AgeTit` structure
+
+Once the samples imported or raised are identified, it is possible to check the impact of the allocation scheme on the mean age/length of the final age/length distribution of the stock.
+The following figures compare the mean age (computed as the weighted mean of the age per strata("CatchCategory",'RaisedOrImported',"SampledOrEstimated","Country","Area","Season","Fleet","Sex")) of the estimated stratas compared to the imported ones and the final distribution. Each individual included in the boxplot corresponds to the weighted mean age of a strata.
+
+###`r  paste("Global mean ",AgeTit)`
+
+```{r meanAge}
+
+
+
+AgeStrucSexLan <- AgeStrucSex
+
+ggplot(AgeStrucSexLan, aes(x=CatchCategory, y=meanAge, fill=SampledOrEstimated)) +
+  geom_boxplot()				
+
+
+
+```
+`r tmp<-paste("Mean ",AgeTit, " in the Landings by catch category")`
+`r figcap(name="meanAge",caption=tmp)`
+
+###Mean `r AgeTit` per sex
+
+```{r meanAgeSex}
+AgeStrucSexLan <- AgeStrucSex[CatchCategory=="Landings",]
+				plotTitle <- paste("Mean ", AgeTit, " in the Landings", sep=" ")
+				ylabtitle <- paste("mean ",AgeTit)
+
+				
+ggplot(AgeStrucSexLan, aes(x=Sex, y=meanAge, fill=SampledOrEstimated)) +
+  geom_boxplot()				
+				
+```
+`r tmp<-paste("Mean ",AgeTit, " in the Landings by sex")`
+`r figcap(name="meanAgeSex",caption=tmp)`
+
+
+###Mean `r AgeTit` per area
+
+```{r meanAgeArea}
+catchCat <- "Landings"
+Var <- "Area"
+
+AgeStrucSexLan <- AgeStrucSex[CatchCategory==catchCat,]
+AgeStrucSexLan <- data.frame(AgeStrucSexLan)
+AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)] <- factor(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+pos <- levels(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+
+Estim <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Estimated_Distribution'),]
+Estim[,which(colnames(Estim)==Var)] <- factor(Estim[,which(colnames(Estim)==Var)])
+
+Sampled <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Sampled_Distribution'),]
+Sampled[,which(colnames(Sampled)==Var)] <- factor(Sampled[,which(colnames(Sampled)==Var)])
+par(las=2)
+plotFunction(AgeStrucSexLan, Estim, Sampled)
+
+```
+`r tmp<-paste("Mean ",AgeTit, " in the Landings by Area")`
+`r figcap(name="meanAgeArea",caption=tmp)`
+
+###Mean `r AgeTit` per fleet
+
+```{r meanAgeFleet}
+catchCat <- "Landings"
+Var <- "Fleet"
+
+AgeStrucSexLan <- AgeStrucSex[CatchCategory==catchCat,]
+AgeStrucSexLan <- data.frame(AgeStrucSexLan)
+AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)] <- factor(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+pos <- levels(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+
+Estim <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Estimated_Distribution'),]
+Estim[,which(colnames(Estim)==Var)] <- factor(Estim[,which(colnames(Estim)==Var)])
+
+Sampled <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Sampled_Distribution'),]
+Sampled[,which(colnames(Sampled)==Var)] <- factor(Sampled[,which(colnames(Sampled)==Var)])
+par(las=2, mar=c(15,4,4,5))
+plotFunction(AgeStrucSexLan,Estim,Sampled)
+
+```
+`r tmp<-paste("Mean ",AgeTit, " in the Landings by Fleet")`
+`r figcap(name="meanAgeFleet",caption=tmp)`
+
+###Resulting `r AgeTit` structure
+
+The following plot shows the percentage of each `r AgeTit` for the sampled strata, estimated and the final `r AgeTit` structure for the landing and discard fractions.
+
+
+```{r ageStrucTot}
+listVAR <- c("CatchCategory","SampledOrEstimated")
+
+AgeStrucSexProp <- AgeStrucSex[,list(sumCANUM=sum(CANUM)), by=c(listVAR,'AgeOrLength')]
+AgeStrucSexProp <- AgeStrucSexProp[,propCanum:=sumCANUM/sum(sumCANUM), by=listVAR]
+
+listVAR <- c("CatchCategory")
+AgeStrucSexProp2 <- AgeStrucSex[,list(sumCANUM=sum(CANUM)), by=c(listVAR,'AgeOrLength')]
+AgeStrucSexProp2 <- AgeStrucSexProp2[,propCanum:=sumCANUM/sum(sumCANUM), by=listVAR]
+AgeStrucSexProp2$SampledOrEstimated <- "Final Distribution"
+
+AgeStrucSexProp<- rbind(AgeStrucSexProp,AgeStrucSexProp2)
+
+xlabTitle <- AgeTit
+xyplot(propCanum~AgeOrLength|CatchCategory,groups = SampledOrEstimated, data=AgeStrucSexProp,auto.key = list(space = "right", points = TRUE, lines = FALSE), xlab=xlabTitle)
+
+```
+`r tmp<-paste(AgeTit, " structure")`
+`r figcap(name="ageStrucTot",caption=tmp)`
+
+##Mean weight at `r AgeTit`
+
+the catchAndSampleData also provide the weight at `r AgeTit` per strata for the Sampled/Estimated stratas.
+One would also want to check the sampled/estimated and resulting weight at `r AgeTit`. This is produced in the following graph, each boxplot representing the distribution of the weight at `r AgeTit` for the different stratas.
+
+
+```{r meanWt}
+catchCat <- "Landings"
+Var <- "AgeOrLength"
+
+AgeStrucSexLan <- AgeStrucSex[CatchCategory==catchCat,]
+AgeStrucSexLan <- data.frame(AgeStrucSexLan)
+AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)] <- factor(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+pos <- levels(AgeStrucSexLan[,which(colnames(AgeStrucSexLan)==Var)])
+
+Estim <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Estimated_Distribution'),]
+Estim[,which(colnames(Estim)==Var)] <- factor(Estim[,which(colnames(Estim)==Var)])
+
+Sampled <- AgeStrucSexLan[which(AgeStrucSexLan$SampledOrEstimated=='Sampled_Distribution'),]
+Sampled[,which(colnames(Sampled)==Var)] <- factor(Sampled[,which(colnames(Sampled)==Var)])
+Areas <- unique(AgeStrucSexLan$Area)
+#par(las=2, mfrow=c(length(Areas),1 ))
+for(i in Areas){
+	plotFunctionMeanWeight(AgeStrucSexLan=AgeStrucSexLan[AgeStrucSexLan$Area==i,],Estim=Estim[Estim$Area==i,],Sampled=Sampled[Sampled$Area==i,])
+  cat('/r/n/r/n')
+	}
+
+```
+`r tmp<-paste("Mean ",AgeTit, " in the Landings by Area")`
+`r figcap(name="meanWt",caption=tmp)`
+
+
+The outliers (more than 3 times the standard deviation) are extracted and can be investigated from the following table.
+
+
+`r tabcap(name="idSamp", cap="Samples that are higher or lower than the average weigth at age/length +/- 3*standard deviation")`
+```{r}
+catchCat <- "Landings"
+
+AgeStrucSexLan <- data.table(AgeStrucSexLan[AgeStrucSexLan$RaisedOrImported=="Imported_Data" & AgeStrucSexLan$CatchCategory==catchCat,])
+AgeStrucSexLan <- AgeStrucSexLan[,AverageWtSize:=mean(WECA), by=list(RaisedOrImported,AgeOrLength,Area)]
+AgeStrucSexLan <- AgeStrucSexLan[,stdWECA:=sd(WECA), by=list(RaisedOrImported,AgeOrLength,Area)]
+pander(AgeStrucSexLan[WECA>AverageWtSize+3*stdWECA | WECA<AverageWtSize-3*stdWECA   ,c('Country','Fleet','CatchCategory','WECA','AverageWtSize','AgeOrLength','Area'), with=F])
+```
